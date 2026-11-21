@@ -243,6 +243,7 @@ function handleMessage(ws, raw) {
     if (typeof message.playing !== 'boolean' || !validPosition(message.position)) return;
     playRoom.playing = message.playing;
     playRoom.position = message.position;
+    playRoom.positionUpdatedAt = Date.now();
     broadcastState();
     return;
   }
@@ -272,6 +273,7 @@ function handleMessage(ws, raw) {
     playRoom.film = { url: url.href, title: name.slice(0, 150), updatedBy: 'triborg', updatedAt: Date.now() };
     playRoom.playing = false;
     playRoom.position = 0;
+    playRoom.positionUpdatedAt = Date.now();
     playRoom.subtitle = null;
     broadcastState();
     return;

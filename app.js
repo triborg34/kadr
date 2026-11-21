@@ -198,9 +198,11 @@ function renderRoom(state) {
     updateMovieDetails(film);
   } else if (!film?.url && !video.dataset.url) updateMovieDetails(null);
   const position = Number(roomState.position || 0);
-  if (video.dataset.url && video.readyState >= 1 && Math.abs(video.currentTime - position) > 3 && Number.isFinite(position)) {
+  const updatedAt = Number(roomState.positionUpdatedAt || Date.now());
+  const expectedPosition = position + (roomState.playing ? Math.max(0, Date.now() - updatedAt) / 1000 : 0);
+  if (video.dataset.url && video.readyState >= 1 && Math.abs(video.currentTime - expectedPosition) > 2.5 && Number.isFinite(expectedPosition)) {
     syncingVideo = true;
-    video.currentTime = position;
+    video.currentTime = expectedPosition;
   }
   if (video.dataset.url && roomState.playing && video.paused && !playbackNeedsGesture) {
     video.play().catch(() => {
@@ -408,11 +410,13 @@ video.addEventListener('click', () => {
 });
 video.addEventListener('pause', () => { if (!syncingVideo && isAdmin()) publishPlayback(); });
 video.addEventListener('seeked', () => { syncingVideo = false; if (isAdmin()) sendMessage({ type: 'playback', playing: !video.paused, position: video.currentTime }); });
-let playWriteTimeout;
+let lastPlaybackSyncAt = 0;
 video.addEventListener('timeupdate', () => {
   if (!isAdmin() || video.paused) return;
-  clearTimeout(playWriteTimeout);
-  playWriteTimeout = setTimeout(() => sendMessage({ type: 'playback', playing: true, position: video.currentTime }), 2400);
+  const now = Date.now();
+  if (now - lastPlaybackSyncAt < 1800) return;
+  lastPlaybackSyncAt = now;
+  sendMessage({ type: 'playback', playing: true, position: video.currentTime });
 });
 window.addEventListener('pagehide', () => {
   clearTimeout(reconnectTimeout); wsIntentionalClose = true; disconnectVoice(false);
