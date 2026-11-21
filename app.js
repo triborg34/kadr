@@ -6,7 +6,7 @@ const video = document.querySelector('#video-player');
 const remoteAudio = document.querySelector('#remote-audio');
 let currentUser = null, ws = null, wsIntentionalClose = false, authenticated = false;
 let roomState = {}, peerConnection = null, localStream = null, activeCall = false;
-let selectedUsername = '', subtitleVersion = '';
+let selectedUsername = '', subtitleVersion = '', presenceInitialized = false;
 let toastTimeout, syncingVideo = false, playbackNeedsGesture = false, reconnectTimeout, mediaController, pendingIceCandidates = [];
 let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
 const $ = (selector) => document.querySelector(selector);
@@ -53,7 +53,7 @@ function setSyncStatus(connected, message) {
 }
 function sendMessage(message) {
   if (ws?.readyState !== WebSocket.OPEN || !authenticated) {
-    showToast('اتصال اتاق برقرار نیست؛ دوباره وارد شو.');
+    showToast('اتصال اتاقمون برقرار نیست؛ دوباره وصل بشیم.');
     return false;
   }
   ws.send(JSON.stringify(message));
@@ -67,6 +67,7 @@ function disconnectRoom() {
   ws = null;
   iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
   roomState = {};
+  presenceInitialized = false;
 }
 function connectToServer(username) {
   wsIntentionalClose = false;
@@ -77,7 +78,7 @@ function connectToServer(username) {
     if (!response.ok) throw new Error('Session check failed.');
     ws = new WebSocket(`${protocol}//${location.host}/ws`);
     bindSocket(ws);
-  }).catch((error) => { console.error('Room connection failed:', error); setSyncStatus(false, 'اتصال برقرار نیست'); showToast('اتصال به سرور برقرار نشد.'); });
+  }).catch((error) => { console.error('Room connection failed:', error); setSyncStatus(false, 'اتصال برقرار نیست'); showToast('اتصال به سرور برقرار نشد؛ دوباره تلاش کنیم.'); });
 }
 function bindSocket(socket) {
   const thisSocket = socket;
@@ -104,7 +105,7 @@ function bindSocket(socket) {
     }
     if (message.type === 'signal') {
       if (message.signalType === 'hangup') { disconnectVoice(false); return; }
-      handleSignal(message).catch((error) => { console.error('WebRTC signaling error:', error); showToast('اتصال صوتی برقرار نشد؛ دوباره تماس بگیر.'); });
+      handleSignal(message).catch((error) => { console.error('WebRTC signaling error:', error); showToast('تماس صوتی برقرار نشد؛ دوباره تماس بگیریم.'); });
       return;
     }
     if (message.type === 'error') showToast(message.message || 'اتصال با مشکل روبه‌رو شد.');
@@ -124,6 +125,10 @@ function bindSocket(socket) {
       });
     } else if (!wsIntentionalClose && currentUser) {
       setSyncStatus(false, 'اتصال قطع شد');
+      presenceInitialized = false;
+      const ownPresence = currentUser.username === 'triborg' ? $('#triborg-presence') : $('#kimi-presence');
+      ownPresence.textContent = 'قطع شد'; ownPresence.classList.remove('online');
+      showToast('اتصال ما به اتاق قطع شد؛ دوباره وصل می‌شویم.');
       reconnectTimeout = setTimeout(() => { if (currentUser && !wsIntentionalClose) connectToServer(currentUser.username); }, 2500);
     }
   });
@@ -157,7 +162,7 @@ async function login(username, { password, existingSession = false } = {}) {
     connectToServer(username);
   } catch (error) {
     console.error('Session login failed:', error);
-    $('#login-error').textContent = 'اتصال به سرور برقرار نشد؛ اینترنت را بررسی کن.';
+    $('#login-error').textContent = 'اتصال به سرور برقرار نشد؛ اینترنت رو بررسی کنیم.';
   } finally {
     submitButton.disabled = false;
     submitButton.innerHTML = 'ورود به اتاق <span>←</span>';
@@ -166,17 +171,29 @@ async function login(username, { password, existingSession = false } = {}) {
 function updateMovieDetails(film) {
   if (!film?.url) {
     $('#movie-title').textContent = 'هنوز فیلمی انتخاب نشده';
-    $('#movie-subtitle').textContent = isAdmin() ? 'اولین انتخاب با شماست.' : 'اولین انتخاب با مدیر اتاقه.';
+    $('#movie-subtitle').textContent = isAdmin() ? 'اولین فیلم رو باهم انتخاب می‌کنیم.' : 'اولین فیلم رو با انتخاب مدیر اتاق می‌ذاریم.';
     return;
   }
   $('#movie-title').textContent = film.title || titleFromUrl(film.url);
-  $('#movie-subtitle').textContent = isAdmin() ? 'فیلم انتخابی شما • برای هردوتون' : 'فیلم رو مدیر اتاق انتخاب کرده.';
+  $('#movie-subtitle').textContent = isAdmin() ? 'فیلمی که انتخاب کردیم • برای هردومون' : 'این فیلم رو با انتخاب مدیر اتاق گذاشتیم.';
 }
 function publishPlayback() {
-  if (isAdmin()) sendMessage({ type: 'playback', playing: !video.paused, position: video.currentTime });
+  if (isAdmin() && roomState.film?.url) sendMessage({ type: 'playback', playing: !video.paused, position: video.currentTime });
 }
 function renderRoom(state) {
+  const previousUsers = roomState?.users || [];
+  const hadPresence = presenceInitialized;
   roomState = state || {};
+  for (const [username, id] of [['triborg', 'triborg-presence'], ['kimiblue', 'kimi-presence']]) {
+    const online = roomState.users?.includes(username) ?? false;
+    const presence = $(`#${id}`);
+    presence.textContent = online ? 'آنلاین' : 'آفلاین';
+    presence.classList.toggle('online', online);
+    if (hadPresence && previousUsers.includes(username) && !online) showToast(`${username} از اتاق قطع شد.`);
+    else if (hadPresence && !previousUsers.includes(username) && online && username !== currentUser?.username) showToast(`${username} دوباره به اتاق برگشت.`);
+  }
+  presenceInitialized = true;
+  $('#remove-film').classList.toggle('hidden', !isAdmin() || !roomState.film?.url);
   if (roomState.voiceOffer && !isAdmin() && activeCall && peerConnection && peerConnection.remoteDescription?.sdp !== roomState.voiceOffer.sdp) {
     handleSignal({ type: 'signal', signalType: 'offer', description: roomState.voiceOffer }).catch((error) => console.error('Could not accept pending call:', error));
   }
@@ -192,21 +209,34 @@ function renderRoom(state) {
       import('https://cdn.jsdelivr.net/npm/hls.js@1.6.15/+esm').then(({ default: Hls }) => {
         if (video.dataset.url !== film.url) return;
         if (Hls.isSupported()) { mediaController = new Hls(); mediaController.loadSource(film.url); mediaController.attachMedia(video); }
-        else { $('#player-loading').classList.add('hidden'); showToast('این مرورگر از پخش HLS پشتیبانی نمی‌کند.'); }
-      }).catch(() => { $('#player-loading').classList.add('hidden'); showToast('HLS در دسترس نیست؛ لینک MP4 امتحان کن.'); });
+        else { $('#player-loading').classList.add('hidden'); showToast('این مرورگر از پخش HLS پشتیبانی نمی‌کنه.'); }
+      }).catch(() => { $('#player-loading').classList.add('hidden'); showToast('HLS در دسترس نیست؛ لینک MP4 رو امتحان کنیم.'); });
     } else { video.src = film.url; video.load(); }
     updateMovieDetails(film);
-  } else if (!film?.url && !video.dataset.url) updateMovieDetails(null);
+  } else if (!film?.url && video.dataset.url) {
+    syncingVideo = true;
+    mediaController?.destroy?.();
+    mediaController = null;
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    video.dataset.url = '';
+    video.parentElement.classList.remove('has-film', 'is-playing');
+    $('#player-loading').classList.add('hidden');
+    subtitleVersion = '';
+    updateMovieDetails(null);
+    syncingVideo = false;
+  } else if (!film?.url) updateMovieDetails(null);
   const position = Number(roomState.position || 0);
   const updatedAt = Number(roomState.positionUpdatedAt || Date.now());
   const expectedPosition = position + (roomState.playing ? Math.max(0, Date.now() - updatedAt) / 1000 : 0);
   if (video.dataset.url && video.readyState >= 1 && Math.abs(video.currentTime - expectedPosition) > 2.5 && Number.isFinite(expectedPosition)) {
     syncingVideo = true;
-    video.currentTime = expectedPosition;
+    video.currentTime = Number.isFinite(video.duration) ? Math.min(expectedPosition, video.duration) : expectedPosition;
   }
   if (video.dataset.url && roomState.playing && video.paused && !playbackNeedsGesture) {
     video.play().catch(() => {
-      if (!isAdmin() && !playbackNeedsGesture) { playbackNeedsGesture = true; showToast('برای شروع تماشای همگام، یک بار روی فیلم بزن.'); }
+      if (!isAdmin() && !playbackNeedsGesture) { playbackNeedsGesture = true; showToast('برای شروع تماشای همگام، یک بار روی فیلم بزنیم.'); }
     });
   }
   if (roomState.playing === false && !video.paused) video.pause();
@@ -226,7 +256,7 @@ function updateSubtitleTrack(subtitle) {
   track.label = subtitle.name || 'فارسی';
   track.src = `/api/subtitle?v=${encodeURIComponent(version)}`;
   track.track.mode = 'showing';
-  track.onerror = () => showToast('زیرنویس دریافت نشد؛ دوباره وارد اتاق شو.');
+  track.onerror = () => showToast('زیرنویس دریافت نشد؛ دوباره وارد اتاق بشیم.');
 }
 function convertSrtToVtt(text) {
   const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -244,21 +274,21 @@ function convertSrtToVtt(text) {
   return `WEBVTT\n\n${cues.join('\n\n')}\n`;
 }
 async function publishSubtitle(file) {
-  if (!isAdmin()) throw new Error('فقط triborg می‌تونه زیرنویس انتخاب کنه.');
-  if (!file || !/\.srt$/i.test(file.name)) throw new Error('لطفاً یک فایل با پسوند SRT انتخاب کن.');
+  if (!isAdmin()) throw new Error('زیرنویس رو با حساب triborg انتخاب می‌کنیم.');
+  if (!file || !/\.srt$/i.test(file.name)) throw new Error('یک فایل با پسوند SRT انتخاب کنیم.');
   if (file.size > 160 * 1024) throw new Error('حجم زیرنویس باید کمتر از ۱۶۰ کیلوبایت باشد.');
   const vtt = convertSrtToVtt(await file.text());
   if (new TextEncoder().encode(vtt).byteLength > 220 * 1024) throw new Error('حجم زیرنویس تبدیل‌شده بیش از حد مجاز است.');
   if (!sendMessage({ type: 'subtitle', name: file.name.replace(/\.srt$/i, '').slice(0, 120) || 'زیرنویس فارسی', vtt })) throw new Error('اتصال به اتاق برقرار نیست.');
-  showToast('زیرنویس برای هر دو نفر اضافه شد.');
+  showToast('زیرنویس رو برای هردومون اضافه کردیم.');
 }
 function requestFilm() {
-  if (!isAdmin()) { showToast('فقط triborg می‌تونه فیلم انتخاب کنه.'); return; }
+  if (!isAdmin()) { showToast('فیلم رو با حساب triborg انتخاب می‌کنیم.'); return; }
   $('#film-url').value = '';
   if (!filmDialog.open) filmDialog.showModal();
 }
 function publishFilm(url) {
-  if (!isAdmin()) throw new Error('فقط triborg می‌تونه فیلم انتخاب کنه.');
+  if (!isAdmin()) throw new Error('فیلم رو با حساب triborg انتخاب می‌کنیم.');
   let parsed;
   try { parsed = new URL(url); } catch { throw new Error('آدرس لینک فیلم معتبر نیست.'); }
   if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('لینک باید با HTTP یا HTTPS باشد.');
@@ -285,7 +315,7 @@ async function ensurePeerConnection() {
     if (peerConnection.connectionState === 'connected') $('#voice-status').innerHTML = '<span class="pulse-dot"></span> وصلی';
     else if (['failed', 'closed', 'disconnected'].includes(peerConnection.connectionState)) {
       $('#voice-status').innerHTML = '<span></span> قطع شده';
-      if (peerConnection.connectionState === 'failed') showToast('تماس ناموفق بود؛ شبکه را بررسی کن.');
+      if (peerConnection.connectionState === 'failed') showToast('تماس ناموفق بود؛ شبکه رو بررسی کنیم.');
     }
   };
   return peerConnection;
@@ -310,7 +340,7 @@ async function handleSignal(message) {
   }
 }
 async function connectVoice() {
-  if (!authenticated) { showToast('اول به اتاق وصل شو.'); return; }
+  if (!authenticated) { showToast('اول به اتاق وصل بشیم.'); return; }
   if (activeCall) { disconnectVoice(); return; }
   const button = $('#connect-voice'); button.disabled = true;
   try {
@@ -323,23 +353,23 @@ async function connectVoice() {
         await pc.setLocalDescription(offer);
         await waitForIceGathering(pc);
         sendMessage({ type: 'signal', signalType: 'offer', description: pc.localDescription.toJSON() });
-      } else showToast('اتصال آماده‌ست؛ به‌محض ورود kimiblue تماس برقرار می‌شه.');
+      } else showToast('تماس رو آماده کردیم؛ با ورود kimiblue وصل می‌شیم.');
     } else if (roomState.voiceOffer) {
       await handleSignal({ type: 'signal', signalType: 'offer', description: roomState.voiceOffer });
     } else {
       $('#voice-status').innerHTML = '<span class="pulse-dot"></span> منتظر مدیر';
-      showToast('میکروفون آماده‌ست؛ همین که مدیر وصل بشه تماس برقرار می‌شه.');
+      showToast('میکروفون رو آماده کردیم؛ با وصل‌شدن مدیر تماس برقرار می‌شه.');
     }
     $('#mic-toggle').disabled = false;
     $('#mic-toggle').classList.add('active');
     $('#mic-title').textContent = 'میکروفون وصله';
-    $('#mic-description').textContent = 'برای قطع صدات روی میکروفون بزن.';
+    $('#mic-description').textContent = 'برای قطع صدای خودمون روی میکروفون بزنیم.';
     $('.mic-on').classList.remove('hidden'); $('.mic-off').classList.add('hidden');
     button.querySelector('span').textContent = 'قطع'; button.dataset.connected = 'true';
   } catch (error) {
     console.error('Could not connect voice:', error);
     disconnectVoice();
-    showToast(error.name === 'NotAllowedError' ? 'برای تماس باید اجازهٔ استفاده از میکروفون رو بدی.' : error.message || 'اتصال میکروفون ناموفق بود.');
+    showToast(error.name === 'NotAllowedError' ? 'برای تماس باید اجازهٔ استفاده از میکروفون رو بدیم.' : error.message || 'اتصال میکروفون ناموفق بود.');
   } finally { button.disabled = false; }
 }
 function disconnectVoice(showNotice = true) {
@@ -351,10 +381,10 @@ function disconnectVoice(showNotice = true) {
   $('#mic-toggle').disabled = true; $('#mic-toggle').classList.remove('active');
   $('.mic-on').classList.remove('hidden'); $('.mic-off').classList.add('hidden');
   $('#voice-status').innerHTML = '<span class="pulse-dot"></span> آماده';
-  $('#mic-title').textContent = 'برای شروع صدات رو وصل کن';
-  $('#mic-description').textContent = 'فقط برای این اتاق؛ هر وقت بخوای قطع می‌شه.';
+  $('#mic-title').textContent = 'برای شروع، صدامون رو وصل کنیم';
+  $('#mic-description').textContent = 'فقط برای این اتاق؛ هر وقت بخوایم قطعش می‌کنیم.'
   $('#connect-voice').querySelector('span').textContent = 'اتصال'; $('#connect-voice').dataset.connected = '';
-  if (showNotice) showToast('تماس صوتی قطع شد.');
+  if (showNotice) showToast('تماس صوتی رو قطع کردیم.');
 }
 
 $('#profile-button').addEventListener('click', openUserDialog);
@@ -375,16 +405,19 @@ $('#subtitle-file').addEventListener('change', async (event) => {
   catch (error) { showToast(error.message || 'افزودن زیرنویس انجام نشد.'); }
   finally { event.target.value = ''; }
 });
+$('#remove-film').addEventListener('click', () => {
+  if (isAdmin() && roomState.film?.url && confirm('فیلم رو از اتاق حذف کنیم؟')) sendMessage({ type: 'remove-film' });
+});
 $('#remove-subtitle').addEventListener('click', () => {
-  if (isAdmin() && sendMessage({ type: 'clear-subtitle' })) showToast('زیرنویس حذف شد.');
+  if (isAdmin() && sendMessage({ type: 'clear-subtitle' })) showToast('زیرنویس رو حذف کردیم.');
 });
 $('#film-form').addEventListener('submit', (event) => {
   event.preventDefault();
-  try { publishFilm($('#film-url').value.trim()); filmDialog.close(); showToast('درخواست پخش فیلم به اتاق ارسال شد.'); }
+  try { publishFilm($('#film-url').value.trim()); filmDialog.close(); showToast('درخواست پخش فیلم رو به اتاق فرستادیم.'); }
   catch (error) { showToast(error.message || 'ذخیرهٔ فیلم انجام نشد.'); }
 });
 $('#copy-room').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(location.href.split('#')[0]); showToast('لینک اتاق کپی شد؛ برای نفر دوم بفرستش.'); }
+  try { await navigator.clipboard.writeText(location.href.split('#')[0]); showToast('لینک اتاق رو کپی کردیم؛ برای نفر دوم بفرستیم.'); }
   catch { showToast('لینک اتاق: ' + location.href.split('#')[0], 6000); }
 });
 $('#connect-voice').addEventListener('click', connectVoice);
@@ -394,8 +427,8 @@ $('#mic-toggle').addEventListener('click', () => {
   $('.mic-on').classList.toggle('hidden', !enabled); $('.mic-off').classList.toggle('hidden', enabled);
   $('#mic-title').textContent = enabled ? 'میکروفون وصله' : 'میکروفون خاموشه';
 });
-video.addEventListener('loadedmetadata', () => $('#player-loading').classList.add('hidden'));
-video.addEventListener('error', () => { $('#player-loading').classList.add('hidden'); showToast('فیلم پخش نشد؛ لینک باید مستقیم و قابل‌دسترسی باشد.'); });
+video.addEventListener('loadedmetadata', () => { $('#player-loading').classList.add('hidden'); renderRoom(roomState); });
+video.addEventListener('error', () => { $('#player-loading').classList.add('hidden'); showToast('فیلم پخش نشد؛ لینک مستقیم و در دسترس رو بررسی کنیم.'); });
 video.addEventListener('playing', () => { video.parentElement.classList.add('is-playing'); $('#player-loading').classList.add('hidden'); });
 video.addEventListener('pause', () => video.parentElement.classList.remove('is-playing'));
 video.addEventListener('play', () => {
@@ -405,18 +438,19 @@ video.addEventListener('play', () => {
 video.addEventListener('click', () => {
   if (!isAdmin() && playbackNeedsGesture && roomState?.playing && video.paused) {
     playbackNeedsGesture = false;
-    video.play().catch(() => { playbackNeedsGesture = true; showToast('برای پخش فیلم، دوباره روی آن بزن.'); });
+    video.play().catch(() => { playbackNeedsGesture = true; showToast('برای پخش فیلم، دوباره روی اون بزنیم.'); });
   }
 });
 video.addEventListener('pause', () => { if (!syncingVideo && isAdmin()) publishPlayback(); });
-video.addEventListener('seeked', () => { syncingVideo = false; if (isAdmin()) sendMessage({ type: 'playback', playing: !video.paused, position: video.currentTime }); });
+video.addEventListener('seeked', () => { syncingVideo = false; if (isAdmin() && roomState.film?.url) sendMessage({ type: 'playback', playing: !video.paused, position: video.currentTime }); });
 let lastPlaybackSyncAt = 0;
 video.addEventListener('timeupdate', () => {
-  if (!isAdmin() || video.paused) return;
+  if (video.paused || !roomState.film?.url) return;
   const now = Date.now();
   if (now - lastPlaybackSyncAt < 1800) return;
   lastPlaybackSyncAt = now;
-  sendMessage({ type: 'playback', playing: true, position: video.currentTime });
+  if (isAdmin()) sendMessage({ type: 'playback', playing: true, position: video.currentTime });
+  else if (!clientIsOnline('triborg')) sendMessage({ type: 'position-sync', position: video.currentTime });
 });
 window.addEventListener('pagehide', () => {
   clearTimeout(reconnectTimeout); wsIntentionalClose = true; disconnectVoice(false);
@@ -427,12 +461,12 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 }
 $('#login-form').addEventListener('submit', (event) => {
   event.preventDefault();
-  if (!selectedUsername) { $('#login-error').textContent = 'اول یکی از کاربران را انتخاب کن.'; return; }
+  if (!selectedUsername) { $('#login-error').textContent = 'اول حساب کاربری‌مون رو انتخاب کنیم.'; return; }
   login(selectedUsername, { password: $('#login-password').value });
 });
 $('#login-password').addEventListener('input', () => $('#login-error').textContent = '');
 $('#profile-button').addEventListener('click', () => {
-  if (currentUser) { showToast(`وارد حساب ${currentUser.username} هستی. برای عوض کردن کاربر اول خارج شو.`); return; }
+  if (currentUser) { showToast(`با حساب ${currentUser.username} وارد شدیم. برای عوض کردن حساب، اول خارج بشیم.`); return; }
   openUserDialog();
 });
 $('#header-logout').addEventListener('click', async () => {

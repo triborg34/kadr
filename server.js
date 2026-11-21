@@ -247,6 +247,13 @@ function handleMessage(ws, raw) {
     broadcastState();
     return;
   }
+  if (message.type === 'position-sync') {
+    if (ws.username !== 'kimiblue' || clients.has('triborg') || !playRoom.film || !validPosition(message.position)) return;
+    playRoom.position = message.position;
+    playRoom.positionUpdatedAt = Date.now();
+    broadcastState();
+    return;
+  }
   if (message.type === 'subtitle') {
     if (ws.username !== 'triborg') { send(ws, { type: 'error', message: 'فقط مدیر اتاق می‌تواند زیرنویس انتخاب کند.' }); return; }
     if (typeof message.name !== 'string' || !message.name.trim() || message.name.length > 120 || typeof message.vtt !== 'string' || !message.vtt.startsWith('WEBVTT\n') || Buffer.byteLength(message.vtt, 'utf8') > MAX_CAPTION_BYTES) {
@@ -258,6 +265,16 @@ function handleMessage(ws, raw) {
   }
   if (message.type === 'clear-subtitle') {
     if (ws.username !== 'triborg') { send(ws, { type: 'error', message: 'فقط مدیر اتاق می‌تواند زیرنویس را حذف کند.' }); return; }
+    playRoom.subtitle = null;
+    broadcastState();
+    return;
+  }
+  if (message.type === 'remove-film') {
+    if (ws.username !== 'triborg') { send(ws, { type: 'error', message: 'فقط مدیر اتاق می‌تواند فیلم را حذف کند.' }); return; }
+    playRoom.film = null;
+    playRoom.playing = false;
+    playRoom.position = 0;
+    playRoom.positionUpdatedAt = Date.now();
     playRoom.subtitle = null;
     broadcastState();
     return;

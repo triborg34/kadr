@@ -3,4 +3,5 @@ node_modules/
 .env.*
 !.env.example
 .DS_Store
+!flutter_app/
 flutter_app/*
