@@ -6,7 +6,7 @@ const video = document.querySelector('#video-player');
 const remoteAudio = document.querySelector('#remote-audio');
 let currentUser = null, ws = null, wsIntentionalClose = false, authenticated = false;
 let roomState = {}, peerConnection = null, localStream = null, activeCall = false;
-let selectedUsername = '', subtitleVersion = '', presenceInitialized = false;
+let selectedUsername = '', subtitleVersion = '', presenceInitialized = false, welcomePending = false;
 let toastTimeout, syncingVideo = false, playbackNeedsGesture = false, reconnectTimeout, mediaController, pendingIceCandidates = [];
 let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
 const $ = (selector) => document.querySelector(selector);
@@ -93,6 +93,7 @@ function bindSocket(socket) {
       renderRoom(roomState);
       setSyncStatus(true, 'همگام‌سازی فعاله');
       if (!loginDialog.open) loginDialog.close();
+      if (welcomePending) { welcomePending = false; showToast(`خوش اومدیم، ${currentUser.username} عزیز!`); }
       return;
     }
     if (message.type === 'state') {
@@ -156,6 +157,7 @@ async function login(username, { password, existingSession = false } = {}) {
       }
     }
     $('#login-password').value = '';
+    welcomePending = !existingSession;
     currentUser = { username };
     setUser(username);
     addFirebaseStyle();
