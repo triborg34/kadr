@@ -163,15 +163,6 @@ async function login(username, { password, existingSession = false } = {}) {
     submitButton.innerHTML = 'ورود به اتاق <span>←</span>';
   }
 }
-async function checkExistingSession() {
-  try {
-    const response = await fetch('/api/session', { credentials: 'same-origin', cache: 'no-store' });
-    if (!response.ok) { openUserDialog(); return; }
-    const session = await response.json();
-    if (allowedUsers.includes(session.username)) await login(session.username, { existingSession: true });
-    else openUserDialog();
-  } catch { openUserDialog(); }
-}
 function updateMovieDetails(film) {
   if (!film?.url) {
     $('#movie-title').textContent = 'هنوز فیلمی انتخاب نشده';
