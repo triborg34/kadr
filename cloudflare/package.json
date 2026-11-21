@@ -1,0 +1,15 @@
+{
+  "name": "kadar-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-assets.mjs",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "check": "node --check src/index.js && node --check scripts/build-assets.mjs && node --check tests/worker.test.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -5,3 +5,13 @@ node_modules/
 .DS_Store
 !flutter_app/
 flutter_app/*
+!cloudflare/
+cloudflare/*
+!cloudflare/src/
+!cloudflare/src/**
+!cloudflare/scripts/
+!cloudflare/scripts/**
+!cloudflare/package.json
+!cloudflare/wrangler.jsonc
+!cloudflare/README.md
+!cloudflare/.gitignore
