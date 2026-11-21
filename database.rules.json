@@ -1,0 +1,4 @@
+{
+  "note": "Firebase is no longer used by this project. The Node.js server authenticates the two allowed users, validates incoming messages, and enforces the admin-only film and playback permissions.",
+  "deploy": "Use the Node.js server and HTTPS reverse proxy instructions in README.md instead."
+}

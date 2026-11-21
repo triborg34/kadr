@@ -1,0 +1,16 @@
+{
+  "name": "kadar-private-watch-party",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A private, two-person synchronized watch party with peer-to-peer voice chat.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

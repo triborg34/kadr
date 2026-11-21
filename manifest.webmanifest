@@ -1,0 +1,14 @@
+{
+  "name": "کادر — باهم تماشا کنیم",
+  "short_name": "کادر",
+  "description": "تماشای فیلم و گفت‌وگوی صوتی هم‌زمان برای دو نفر",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#101214",
+  "theme_color": "#101214",
+  "icons": [
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
