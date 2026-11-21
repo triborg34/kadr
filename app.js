@@ -92,7 +92,7 @@ function bindSocket(socket) {
       roomState = message.state || {};
       renderRoom(roomState);
       setSyncStatus(true, 'همگام‌سازی فعاله');
-      if (!loginDialog.open) loginDialog.close();
+      if (loginDialog.open) loginDialog.close();
       if (welcomePending) { welcomePending = false; showToast(`خوش اومدیم، ${currentUser.username} عزیز!`); }
       return;
     }
