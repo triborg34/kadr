@@ -180,7 +180,9 @@ function updateMovieDetails(film) {
   $('#movie-subtitle').textContent = isAdmin() ? 'فیلمی که انتخاب کردیم • برای هردومون' : 'این فیلم رو با انتخاب مدیر اتاق گذاشتیم.';
 }
 function publishPlayback() {
-  if (isAdmin() && roomState.film?.url) sendMessage({ type: 'playback', playing: !video.paused, position: video.currentTime });
+  if (!isAdmin() || !roomState.film?.url) return;
+  roomState = { ...roomState, playing: !video.paused, position: video.currentTime, positionUpdatedAt: Date.now() };
+  sendMessage({ type: 'playback', playing: !video.paused, position: video.currentTime });
 }
 function renderRoom(state) {
   const previousUsers = roomState?.users || [];
@@ -232,9 +234,22 @@ function renderRoom(state) {
   const position = Number(roomState.position || 0);
   const updatedAt = Number(roomState.positionUpdatedAt || Date.now());
   const expectedPosition = position + (roomState.playing ? Math.max(0, Date.now() - updatedAt) / 1000 : 0);
-  if (video.dataset.url && video.readyState >= 1 && Math.abs(video.currentTime - expectedPosition) > 2.5 && Number.isFinite(expectedPosition)) {
-    syncingVideo = true;
-    video.currentTime = Number.isFinite(video.duration) ? Math.min(expectedPosition, video.duration) : expectedPosition;
+  if (video.dataset.url && video.readyState >= 1 && Number.isFinite(expectedPosition)) {
+    const drift = expectedPosition - video.currentTime;
+    const absDrift = Math.abs(drift);
+    if (isAdmin() && roomState.playing) {
+      // The admin is the playback source; never seek it in response to its own room snapshots.
+      video.playbackRate = 1;
+    } else if (roomState.playing && !video.paused && absDrift > 0.35 && absDrift <= 4) {
+      // Smooth out small network/buffer differences rather than visibly jumping the video.
+      video.playbackRate = drift > 0 ? 1.04 : 0.96;
+    } else {
+      video.playbackRate = 1;
+      if (absDrift > (roomState.playing ? 4 : 2.5)) {
+        syncingVideo = true;
+        video.currentTime = Number.isFinite(video.duration) ? Math.min(expectedPosition, video.duration) : expectedPosition;
+      }
+    }
   }
   if (video.dataset.url && roomState.playing && video.paused && !playbackNeedsGesture) {
     video.play().catch(() => {
@@ -432,7 +447,7 @@ $('#mic-toggle').addEventListener('click', () => {
 video.addEventListener('loadedmetadata', () => { $('#player-loading').classList.add('hidden'); renderRoom(roomState); });
 video.addEventListener('error', () => { $('#player-loading').classList.add('hidden'); showToast('فیلم پخش نشد؛ لینک مستقیم و در دسترس رو بررسی کنیم.'); });
 video.addEventListener('playing', () => { video.parentElement.classList.add('is-playing'); $('#player-loading').classList.add('hidden'); });
-video.addEventListener('pause', () => video.parentElement.classList.remove('is-playing'));
+video.addEventListener('pause', () => { video.playbackRate = 1; video.parentElement.classList.remove('is-playing'); });
 video.addEventListener('play', () => {
   playbackNeedsGesture = false; video.parentElement.classList.add('is-playing');
   if (!syncingVideo && isAdmin()) publishPlayback();
@@ -451,8 +466,13 @@ video.addEventListener('timeupdate', () => {
   const now = Date.now();
   if (now - lastPlaybackSyncAt < 1800) return;
   lastPlaybackSyncAt = now;
-  if (isAdmin()) sendMessage({ type: 'playback', playing: true, position: video.currentTime });
-  else if (!clientIsOnline('triborg')) sendMessage({ type: 'position-sync', position: video.currentTime });
+  if (isAdmin()) {
+    roomState = { ...roomState, playing: true, position: video.currentTime, positionUpdatedAt: now };
+    sendMessage({ type: 'playback', playing: true, position: video.currentTime });
+  } else if (!clientIsOnline('triborg')) {
+    roomState = { ...roomState, position: video.currentTime, positionUpdatedAt: now };
+    sendMessage({ type: 'position-sync', position: video.currentTime });
+  }
 });
 window.addEventListener('pagehide', () => {
   clearTimeout(reconnectTimeout); wsIntentionalClose = true; disconnectVoice(false);
